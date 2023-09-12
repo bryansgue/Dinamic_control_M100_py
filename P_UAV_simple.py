@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import rospy
-from geometry_msgs.msg import Point, Pose2D, Twist, Pose
+from geometry_msgs.msg import Point, Pose2D, Twist, TwistStamped, Pose
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Int32MultiArray
 import matplotlib.pyplot as plt
@@ -70,12 +70,12 @@ def sensor1_callback(msg):
     sensor1 = [msg.x, msg.y, msg.z]
 
 def sendvalues(pub_obj, vc):
-    msg = Twist()
+    msg = TwistStamped()
     #vc = [float(valor) for valor in vc_no[:, 0]]
-    msg.linear.x = vc[0]
-    msg.linear.y = vc[1]
-    msg.linear.z = vc[2]
-    msg.angular.z = vc[3]
+    msg.twist.linear.x = vc[0]
+    msg.twist.linear.y = vc[1]
+    msg.twist.linear.z = vc[2]
+    msg.twist.angular.z = vc[3]
     pub_obj.publish(msg)
 
 
@@ -112,10 +112,10 @@ def main(pub_control,pub_config):
 
     J = np.zeros((4, 4))
 
-    Gains = np.array([1.5000 ,   1.0011,    1.5000,    1.5000,   1.5000,    1.0576,    1.5000,    1.5000,    1.5000,    1.0001,    1.5000,    1.4999,  1.5000,    1.0000 ,   1.5000  ,  1.4999])
+    Gains = np.array([1.5000,    1.5000,    1.0000,    0.4941,    1.0000,    1.0000,    1.0000,    1.0000 ,   1.0000 ,   1.0000  , 1.0000  , 0.1259 , 1.0000  ,  1.0000,    0.4014,   1.0000])
 
-    K1 = np.diag([Gains[0], Gains[1], Gains[2], Gains[3]])  # Distribuir los primeros 4 elementos de Gains en la matriz K1
-    K2 = np.diag([Gains[4], Gains[5], Gains[6], Gains[7]])  # Distribuir los elementos 5 al 8 de Gains en la matriz K2
+    K1 = np.diag([1.5000,    1.5000,    1.0000,    0.4941])  # Distribuir los primeros 4 elementos de Gains en la matriz K1
+    K2 = np.diag([1.25000,    1.25000,    1.25000,    1.25000])  # Distribuir los elementos 5 al 8 de Gains en la matriz K2
     K3 = np.diag([Gains[8], Gains[9], Gains[10], Gains[11]])  # Distribuir los elementos 9 al 12 de Gains en la matriz K3
     K4 = np.diag([Gains[12], Gains[13], Gains[14], Gains[15]])  # Distribuir los elementos 13 al 16 de Gains en la matriz K4
 
@@ -125,9 +125,9 @@ def main(pub_control,pub_config):
     #yd = lambda t: 5 * np.sin(0.08 * t) + 0.1
     #zd = lambda t: 1 * np.sin(0.08 * t) + 2
 
-    xd = lambda t: np.full_like(t, -0.188)
-    yd = lambda t: np.full_like(t, -0.1254)
-    zd = lambda t: np.full_like(t, 3)
+    xd = lambda t: np.full_like(t, 0)
+    yd = lambda t: np.full_like(t, 0.2)
+    zd = lambda t: np.full_like(t, 3.5)
 
     xdp = lambda t: 5 * 0.04 * np.cos(0.04 * t)
     ydp = lambda t: 5 * 0.08 * np.cos(0.08 * t)
@@ -148,7 +148,7 @@ def main(pub_control,pub_config):
     hydpp = ydpp(t)
 
     #psid = np.arctan2(hydp, hxdp)
-    psid_f = lambda t: np.full_like(t, 0)
+    psid_f = lambda t: np.full_like(t, 0.7)
     psid = psid_f(t)
 
     for k in range(samples):
@@ -164,6 +164,17 @@ def main(pub_control,pub_config):
     a = 0
     b = 0
     time_init = time.time()
+
+
+    # Simulation System
+    ros_rate = 30  # Tasa de ROS en Hz
+    rate = rospy.Rate(ros_rate)  # Crear un objeto de la clase rospy.Rate
+
+    for k in range(0, 100):
+        tic = time.time()
+
+        rate.sleep()
+        print("Inicializando:",time.time() - tic)
     
     for k in range(samples):
         tic = time.time()
@@ -191,56 +202,56 @@ def main(pub_control,pub_config):
         else:
             vcp = vc[:, k] / ts
 
-        x = np.array([ 0.3259, 0,0.3787, 0,0.4144, 0, 0, 0.2295, 0.7623, 0, 0.8279,0,0.8437, 0, 0, 0, 0,1.0390])
+        chi = [0.6756,    1.0000,    0.6344,    1.0000,    0.4080,    1.0000,    1.0000,    1.0000,    0.2953,    0.5941,   -0.8109,    1.0000,    0.3984,    0.7040,    1.0000,    0.9365,    1.0000, 1.0000,    0.9752]# Position
         w = v[3, k]
 
-        # INERTIAL MATRIX
-        M11 = x[0]
+        # INERTIAL MATRIchi
+        M11 = chi[0]
         M12 = 0
         M13 = 0
-        M14 = a * w * x[1]
+        M14 = b * chi[1]
         M21 = 0
-        M22 = x[2]
+        M22 = chi[2]
         M23 = 0
-        M24 = b * w * x[3]
+        M24 = a* chi[3]
         M31 = 0
         M32 = 0
-        M33 = x[4]
+        M33 = chi[4]
         M34 = 0
-        M41 = a * w * x[5]
-        M42 = b * w * x[6]
+        M41 = b*chi[5]
+        M42 = a* chi[6]
         M43 = 0
-        M44 = x[7]
+        M44 = chi[7]*(a**2+b**2) + chi[8]
 
         M = np.array([[M11, M12, M13, M14],
                     [M21, M22, M23, M24],
                     [M31, M32, M33, M34],
                     [M41, M42, M43, M44]])
 
-        # CENTRIOLIS MATRIX
-        C11 = x[8]
-        C12 = 0
+        # CENTRIOLIS MATRIchi
+        C11 = chi[9]
+        C12 = w*chi[10]
         C13 = 0
-        C14 = a * w * x[9]
-        C21 = 0
-        C22 = x[10]
+        C14 = a * w * chi[11]
+        C21 = w*chi[12]
+        C22 = chi[13]
         C23 = 0
-        C24 = b * w * x[11]
+        C24 = b * w * chi[14]
         C31 = 0
         C32 = 0
-        C33 = x[12]
+        C33 = chi[15]
         C34 = 0
-        C41 = b * (w ** 2) * x[13]
-        C42 = a * (w ** 2) * x[14]
+        C41 = a *w* chi[16]
+        C42 = b * w * chi[17]
         C43 = 0
-        C44 = (a ** 2) * (w ** 2) * x[15] + (b ** 2) * (w ** 2) * x[16] + x[17]
+        C44 = chi[18]
 
         C = np.array([[C11, C12, C13, C14],
                     [C21, C22, C23, C24],
                     [C31, C32, C33, C34],
                     [C41, C42, C43, C44]])
 
-        # GRAVITATIONAL MATRIX
+        # GRAVITATIONAL MATRIchi
         G11 = 0
         G21 = 0
         G31 = 0
@@ -257,12 +268,11 @@ def main(pub_control,pub_config):
         #control = control.reshape(4, 1)
         vref[:, k] = np.squeeze(M @ control + C @ vc[:, k] + np.ravel(G))
 
-        
         sendvalues(pub_control, vref[:, k] )
-        while (time.time() - tic <= ts):
-                None
-        toc = time.time() - tic 
+        
         print("Error:", " ".join("{:.2f}".format(value) for value in np.round(he[:, k], decimals=2)), end='\r')
+        rate.sleep()
+
 
     v_end = [0, 0.0, 0.0, 0]
     sendvalues(pub_control, v_end)
@@ -294,7 +304,7 @@ if __name__ == '__main__':
         # Node Initialization
         rospy.init_node("Acados_controller",disable_signals=True, anonymous=True)
 
-        pub = rospy.Publisher("/m100/velocityControl", Twist, queue_size=10)
+        pub = rospy.Publisher("/m100/velocityControl", TwistStamped, queue_size=10)
         pub_config = rospy.Publisher("/UAV/Config", Int32MultiArray, queue_size=10)
     
         sub = rospy.Subscriber("/dji_sdk/odometry", Odometry, odo_callback, queue_size=10)
@@ -302,6 +312,7 @@ if __name__ == '__main__':
         main(pub,pub_config)
     except(rospy.ROSInterruptException, KeyboardInterrupt):
         print("Error System")
+        sendvalues(pub, [0,0,0,0] )
         pass
     else:
         print("Complete Execution")

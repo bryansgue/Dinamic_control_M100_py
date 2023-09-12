@@ -253,74 +253,26 @@ def main(pub_control,pub_config):
         else:
             vcp = uc[:, k] / ts
 
-        chi = [0.6756,    1.0000,    0.6344,    1.0000,    0.4080,    1.0000,    1.0000,    1.0000,    0.2953,    0.5941,   -0.8109,    1.0000,    0.3984,    0.7040,    1.0000,    0.9365,    1.0000, 1.0000,    0.9752]# Position
-        w = u[3, k]
+         # Definir la matriz A
+        A = np.array([[-0.6830, 0.5328, -0.5424, -2.2900],
+              [-0.2820, -1.2750, 1.3975, -0.6566],
+              [-0.0092, -0.2938, -1.5222, 0.8752],
+              [0.1709, -0.0861, 0.1627, -3.1737]])
 
-        # INERTIAL MATRIchi
-        M11 = chi[0]
-        M12 = 0
-        M13 = 0
-        M14 = b * chi[1]
-        M21 = 0
-        M22 = chi[2]
-        M23 = 0
-        M24 = a* chi[3]
-        M31 = 0
-        M32 = 0
-        M33 = chi[4]
-        M34 = 0
-        M41 = b*chi[5]
-        M42 = a* chi[6]
-        M43 = 0
-        M44 = chi[7]*(a**2+b**2) + chi[8]
-
-        M = np.array([[M11, M12, M13, M14],
-                    [M21, M22, M23, M24],
-                    [M31, M32, M33, M34],
-                    [M41, M42, M43, M44]])
-
-        # CENTRIOLIS MATRIchi
-        C11 = chi[9]
-        C12 = w*chi[10]
-        C13 = 0
-        C14 = a * w * chi[11]
-        C21 = w*chi[12]
-        C22 = chi[13]
-        C23 = 0
-        C24 = b * w * chi[14]
-        C31 = 0
-        C32 = 0
-        C33 = chi[15]
-        C34 = 0
-        C41 = a *w* chi[16]
-        C42 = b * w * chi[17]
-        C43 = 0
-        C44 = chi[18]
-
-        C = np.array([[C11, C12, C13, C14],
-                    [C21, C22, C23, C24],
-                    [C31, C32, C33, C34],
-                    [C41, C42, C43, C44]])
-
-        # GRAVITATIONAL MATRIchi
-        G11 = 0
-        G21 = 0
-        G31 = 0
-        G41 = 0
-
-        G = np.array([[G11],
-                    [G21],
-                    [G31],
-                    [G41]])
+        # Definir la matriz B
+        B = np.array([[0.7152, -0.2496, 0.5069, 1.9699],
+              [0.2609, 1.4640, -1.6461, 1.0328],
+              [0.2191, 0.2614, 1.5589, -0.7537],
+              [-0.1403, 0.0758, -0.3092, 3.0533]])
 
     
         ue[:, k] = uc[:, k] - u[:, k]
         control = 0*vcp + K3 @ np.tanh(np.linalg.inv(K3) @ K4 @ ue[:, k])
         #control = control.reshape(4, 1)
-        uref[:, k] = np.squeeze(M @ control + C @ uc[:, k] + np.ravel(G))
+        uref[:, k] = np.squeeze(np.linalg.pinv(B) @ control - np.linalg.pinv(B) @ A @ uc[:, k])
 
         
-        sendvalues(pub_control, uref[:, k] )
+        sendvalues(pub_control, uc[:, k] )
         while (time.time() - tic <= ts):
                 None
         toc = time.time() - tic 
