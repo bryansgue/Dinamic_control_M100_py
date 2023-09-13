@@ -82,11 +82,11 @@ def get_body_vel():
     rot = rot.as_matrix()
     rot_inv = np.linalg.inv(rot)
     vel_w = np.array([vxd, vyd, vzd], dtype=np.double)
-    vel_w = vel_w.reshape(3,1)
+    #vel_w = vel_w.reshape(3,1)
     vel = rot_inv@vel_w 
 
-    u = np.array([vel[0,0], vel[1,0], vel[2,0]], dtype=np.double)
-    return u
+    #u = np.array([vel[0,0], vel[1,0], vel[2,0]], dtype=np.double)
+    return vel
 
 def get_pos():
     h = np.array([xd, yd, zd], dtype=np.double)
@@ -124,7 +124,19 @@ def sendvalues(pub_obj, vc):
     msg.twist.angular.z = vc[3]
     pub_obj.publish(msg)
 
+def limitar_angulo(ErrAng):
 
+    if ErrAng >= 1 * np.pi:
+        while ErrAng >= 1 * np.pi:
+            ErrAng -= 2 * np.pi
+        return ErrAng
+
+    if ErrAng <= -1 * np.pi:
+        while ErrAng <= -1 * np.pi:
+            ErrAng += 2 * np.pi
+        return ErrAng
+    
+    return ErrAng
 
 def set_config(run, pub_config):
     msg = Int32MultiArray()
@@ -178,7 +190,7 @@ def main(pub_control,pub_config):
     #xdp = lambda t: -5 * 0.95 * np.sin(0.95 * t)
     #ydp = lambda t: 5 * 0.95* np.cos(0.95* t)
     #zdp = lambda t: 0.01*0.3* np.cos(0.3 * t)
-    num = 5
+    num = 6
     xd = lambda t: 5 * np.sin(num *0.04 * t) + 0.1
     yd = lambda t: 5 * np.sin(num *0.08 * t) + 0.1
     zd = lambda t: 1 * np.sin(0.08 * t) + 2
@@ -233,7 +245,7 @@ def main(pub_control,pub_config):
         euler_p = get_euler_p(omega,euler)
 
 
-        h[:, k] = np.array([pos[0] , pos[1], pos[2], euler[2] ])
+        h[:, k] = np.array([pos[0] , pos[1], pos[2], (euler[2]) ])
         u[:, k] = np.array([vel_body[0] ,vel_body[1], vel_body[2], euler_p[2] ])
 
         psi = h[3, k]
@@ -245,6 +257,7 @@ def main(pub_control,pub_config):
         J[3, 3] = 1
 
         he[:, k] = hd[:, k] - h[:, k]
+        he[3, k] =  limitar_angulo(he[3, k])
         uc[:, k] = np.linalg.pinv(J) @ (hdp[:, k] + K1 @ np.tanh(K2 @ he[:, k]))
         #vc[:, k] = np.linalg.pinv(J) @ (K1 @ np.tanh(K2 @ he[:, k]))
 
