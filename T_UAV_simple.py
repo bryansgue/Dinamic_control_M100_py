@@ -12,27 +12,29 @@ from sensor_msgs.msg import Joy
 
 
 
+
 #pkg> status ## Es para check los paquetes instalados
 # No es necesario en Python, ya que los paquetes se importan directamente
 
 maxloops = 1000
 rosloops = 0
 
-## Global variables system
-xd = 3.0
-yd = -4.6
-zd = 5.16
-vxd = 0.0
-vyd = 0.0
-vzd = 0.0
+# Global variables Odometry Drone
+x_real = 0.0
+y_real = 0.0
+z_real = 0.0
+vx_real = 0.0
+vy_real = 0.0
+vz_real = 0.0
 
-qx = 0.0005
-qy = 0.0
-qz = 0.0
-qw = 1.0
-wxd = 0.0
-wyd = 0.0
-wzd = 0.0
+# Angular velocities
+qx_real = 0.0005
+qy_real = 0.0
+qz_real = 0.0
+qw_real = 1.0
+wx_real = 0.0
+wy_real = 0.0
+wz_real = 0.0
 
 def quaternion_to_euler(qw, qx, qy, qz):
     # Calcula los ángulos de Euler en la convención ZYX
@@ -54,26 +56,24 @@ def quaternion_to_euler(qw, qx, qy, qz):
     return [roll, pitch, yaw]
 
 def odometry_call_back(odom_msg):
-    global xd, yd, zd, qx, qy, qz, qw, vxd, vyd, vzd, wxd, wyd, wzd, time_message
-
+    global x_real, y_real, z_real, qx_real, qy_real, qz_real, qw_real, vx_real, vy_real, vz_real, wx_real, wy_real, wz_real
     # Read desired linear velocities from node
-    time_message = odom_msg.header.stamp
-    xd = odom_msg.pose.pose.position.x 
-    yd = odom_msg.pose.pose.position.y
-    zd = odom_msg.pose.pose.position.z
-    vxd = odom_msg.twist.twist.linear.x
-    vyd = odom_msg.twist.twist.linear.y
-    vzd = odom_msg.twist.twist.linear.z
+    x_real = odom_msg.pose.pose.position.x 
+    y_real = odom_msg.pose.pose.position.y
+    z_real = odom_msg.pose.pose.position.z
+    vx_real = odom_msg.twist.twist.linear.x
+    vy_real = odom_msg.twist.twist.linear.y
+    vz_real = odom_msg.twist.twist.linear.z
 
 
-    qx = odom_msg.pose.pose.orientation.x
-    qy = odom_msg.pose.pose.orientation.y
-    qz = odom_msg.pose.pose.orientation.z
-    qw = odom_msg.pose.pose.orientation.w
+    qx_real = odom_msg.pose.pose.orientation.x
+    qy_real = odom_msg.pose.pose.orientation.y
+    qz_real = odom_msg.pose.pose.orientation.z
+    qw_real = odom_msg.pose.pose.orientation.w
 
-    wxd = odom_msg.twist.twist.angular.x
-    wyd = odom_msg.twist.twist.angular.y
-    wzd = odom_msg.twist.twist.angular.z
+    wx_real = odom_msg.twist.twist.angular.x
+    wy_real = odom_msg.twist.twist.angular.y
+    wz_real = odom_msg.twist.twist.angular.z
     return None
 
 def get_body_vel():
@@ -144,198 +144,227 @@ def set_config(run, pub_config):
     pub_config.publish(msg)
     
 
+def get_odometry_simple():
+
+    global x_real, y_real, z_real, qx_real, qy_real, qz_real, qw_real, vx_real, vy_real, vz_real, wx_real, wy_real, wz_real
+
+    quaternion = [qx_real, qy_real, qz_real, qw_real ]
+    r_quat = R.from_quat(quaternion)
+    euler =  r_quat.as_euler('zyx', degrees = False)
+    psi = euler[0]
+
+    J = np.zeros((3, 3))
+    J[0, 0] = np.cos(psi)
+    J[0, 1] = -np.sin(psi)
+    J[0, 2] = 0
+    J[1, 0] = np.sin(psi)
+    J[1, 1] = np.cos(psi)
+    J[1, 2] = 0
+    J[2, 0] = 0
+    J[2, 1] = 0
+    J[2, 2] = 1
+
+    J_inv = np.linalg.inv(J)
+    v = np.dot(J_inv, [vx_real, vy_real, vz_real])
+ 
+    ul_real = v[0]
+    um_real = v[1]
+    un_real = v[2]
+
+
+    x_state = [x_real,y_real,z_real,psi,ul_real,um_real,un_real, wz_real]
+
+    return x_state
+
+def calc_M(chi, a, b):
+    
+
+    # INERTIAL MATRIchi
+    M11 = chi[0]
+    M12 = 0
+    M13 = 0
+    M14 = b * chi[1]
+    M21 = 0
+    M22 = chi[2]
+    M23 = 0
+    M24 = a* chi[3]
+    M31 = 0
+    M32 = 0
+    M33 = chi[4]
+    M34 = 0
+    M41 = b*chi[5]
+    M42 = a* chi[6]
+    M43 = 0
+    M44 = chi[7]*(a**2+b**2) + chi[8]
+
+    M = np.array([[M11, M12, M13, M14],
+                [M21, M22, M23, M24],
+                [M31, M32, M33, M34],
+                [M41, M42, M43, M44]])
+    
+    return M
+
+def calc_C(chi, a, b, x):
+    w = x[7]
+
+    # CENTRIOLIS MATRIchi
+    C11 = chi[9]
+    C12 = w*chi[10]
+    C13 = 0
+    C14 = a * w * chi[11]
+    C21 = w*chi[12]
+    C22 = chi[13]
+    C23 = 0
+    C24 = b * w * chi[14]
+    C31 = 0
+    C32 = 0
+    C33 = chi[15]
+    C34 = 0
+    C41 = a *w* chi[16]
+    C42 = b * w * chi[17]
+    C43 = 0
+    C44 = chi[18]
+
+    C = np.array([[C11, C12, C13, C14],
+                [C21, C22, C23, C24],
+                [C31, C32, C33, C34],
+                [C41, C42, C43, C44]])
+
+    return C
+
+def calc_G():
+    # GRAVITATIONAL MATRIchi
+    G11 = 0
+    G21 = 0
+    G31 = 0
+    G41 = 0
+
+    G = np.array([[G11],
+                [G21],
+                [G31],
+                [G41]])
+
+
+def calc_J(x):
+    
+    psi = x[3]
+
+    J = np.zeros((4, 4))
+
+    J[0, 0] = np.cos(psi)
+    J[0, 1] = -np.sin(psi)
+    J[1, 0] = np.sin(psi)
+    J[1, 1] = np.cos(psi)
+    J[2, 2] = 1
+    J[3, 3] = 1
+
+    return J
+
 def main(pub_control,pub_config):
 
     print("OK, controller is running!!!")
-    set_config(1, pub_config)
-    # Espera 1 segundo para comenzar la ejecución
     
-
-    timerun = 60  # Segundos
+    timerun = 60*5  # Segundos
     hz = 30  # Frecuencia de actualización
     ts = 1 / hz
     samples = timerun * hz  # datos de muestreo totales
     
     # Inicialización de matrices
-    h = np.zeros((4, samples))
+    t = np.arange(0, samples * ts, ts)
+    x = np.zeros((8, samples))
     uc = np.zeros((4, samples))
     uref = np.zeros((4, samples))
-    u = np.zeros((4, samples))
-    hd = np.zeros((4, samples))
-    hdp = np.zeros((4, samples))
     he = np.zeros((4, samples))
     ue = np.zeros((4, samples))
-    vcpp = np.zeros((4, samples))
     psidp = np.zeros(samples)
 
-    J = np.zeros((4, 4))
-
-    Gains = 0.9*np.array([1.5000 ,   1.0011,    1.5000,    1.5000,   1.5000,    1.0576,    1.5000,    1.5000,    1.5000,    1.0001,    1.5000,    1.4999,  1.5000,    1.0000 ,   1.5000  ,  1.4999])
-
-    K1 = np.diag([1,1,1,1])  # Distribuir los primeros 4 elementos de Gains en la matriz K1
-    K2 = np.diag([1,1,1,1])  # Distribuir los elementos 5 al 8 de Gains en la matriz K2
-    K3 = np.diag([1,1,1,1])  # Distribuir los elementos 9 al 12 de Gains en la matriz K3
-    K4 = np.diag([1,1,1,1])  # Distribuir los elementos 13 al 16 de Gains en la matriz K4
-    t = np.arange(0, samples * ts, ts)
+    #GANANCIAS DEL CONTROLADOR
+    K1 = np.diag([1,1,1,1])  
+    K2 = np.diag([1,1,1,1])  
+    K3 = np.diag([1,1,1,1])  
+    K4 = np.diag([1,1,1,1])  
     
-    #xd = lambda t: np.full_like(t, -12.6)
-    #yd = lambda t: np.full_like(t, 22.2222222222)
-    #zd = lambda t: np.full_like(t, 10)
-    
-    #xd = lambda t: 5 * np.cos(0.95*t) + 5
-    #yd = lambda t: 5 * np.sin (0.95 * t)
-    #zd = lambda t: 0.01 * np.sin (0.3 * t) +10  
-
-     
-    #xdp = lambda t: -5 * 0.95 * np.sin(0.95 * t)
-    #ydp = lambda t: 5 * 0.95* np.cos(0.95* t)
-    #zdp = lambda t: 0.01*0.3* np.cos(0.3 * t)
-    num = 6
+    #TAREA DESEADA
+    num = 4
     xd = lambda t: 5 * np.sin(num *0.04 * t) + 0.1
-    yd = lambda t: 5 * np.sin(num *0.08 * t) + 0.1
-    zd = lambda t: 1 * np.sin(0.08 * t) + 2
-
+    yd = lambda t: 2 * np.sin(num *0.08 * t) + 0.1
+    zd = lambda t: 1 * np.sin(0.08 * t) + 5
     xdp = lambda t: 5 *num * 0.04 * np.cos(num *0.04 * t)
-    ydp = lambda t: 5 *num * 0.08 * np.cos(num *0.08 * t)
+    ydp = lambda t: 2 *num * 0.08 * np.cos(num *0.08 * t)
     zdp = lambda t: 0.08 * np.cos(0.08 * t)
-
-    xdpp = lambda t: -5 *num * 0.04 * 0.04 * num * np.sin(num *0.04 * t)
-    ydpp = lambda t: -5 *num * 0.08 * 0.08 * num * np.sin(num *0.08 * t)
 
     hxd = xd(t)
     hyd = yd(t)
     hzd = zd(t)
-
     hxdp = xdp(t)
     hydp = ydp(t)
     hzdp = zdp(t)
 
-    hxdpp = xdpp(t)
-    hydpp = ydpp(t)
-
     psid = np.arctan2(hydp, hxdp)
-    #psid_f = lambda t: np.full_like(t, 0)
-    #psid = psid_f(t)
+    psidp = np.gradient(psid, ts)
 
-    for k in range(samples):
-        if k > 0:
-            psidp[k] = (psid[k] - psid[k - 1]) / ts
-        else:
-            psidp[k] = psid[k] / ts
-
-    psidp[0] = 0
-
-    
-
+    # Vector Initial conditions
     a = 0
     b = 0
-    time_init = time.time()
+    
+    # Reference Signal of the system
+    xref = np.zeros((12, t.shape[0]), dtype = np.double)
+    xref[0,:] = hxd
+    xref[1,:] = hyd
+    xref[2,:] = hzd
+    xref[3,:] = psid
+    xref[4,:] = hxdp
+    xref[5,:] = hydp
+    xref[6,:] = hzdp
+    xref[7,:] = psidp
+
+    # Simulation System
+    ros_rate = 30  # Tasa de ROS en Hz
+    rate = rospy.Rate(ros_rate)  # Crear un objeto de la clase rospy.Rate
+
+    #INICIALIZA LECTURA DE ODOMETRIA
+    for k in range(0, 100):
+        # Read Real data
+        x[:, 0] = get_odometry_simple()
+        # Loop_rate.sleep()
+        rate.sleep() 
+        print("Init System")
     
     for k in range(samples):
+        #INICIO DEL TIEMPO DE BUCLE
         tic = time.time()
 
-        hd[:, k] = [hxd[k], hyd[k], hzd[k], psid[k]]
-        hdp[:, k] = [hxdp[k], hydp[k], hzdp[k], psidp[k]]
-
-        pos = get_pos()
-        euler = get_euler()
-
-        vel_body = get_body_vel()
-        omega = get_omega()
-        euler_p = get_euler_p(omega,euler)
-
-
-        h[:, k] = np.array([pos[0] , pos[1], pos[2], (euler[2]) ])
-        u[:, k] = np.array([vel_body[0] ,vel_body[1], vel_body[2], euler_p[2] ])
-
-        psi = h[3, k]
-        J[0, 0] = np.cos(psi)
-        J[0, 1] = -np.sin(psi)
-        J[1, 0] = np.sin(psi)
-        J[1, 1] = np.cos(psi)
-        J[2, 2] = 1
-        J[3, 3] = 1
-
-        he[:, k] = hd[:, k] - h[:, k]
+        # MODELO CINEMATICO Y DINAMICO
+        chi = [0.6756,    1.0000,    0.6344,    1.0000,    0.4080,    1.0000,    1.0000,    1.0000,    0.2953,    0.5941,   -0.8109,    1.0000,    0.3984,    0.7040,    1.0000,    0.9365,    1.0000, 1.0000,    0.9752]# Position
+        
+        J = calc_J(x[:, k])
+        M = calc_M(chi, a, b)
+        C = calc_C(chi, a, b, x[:,k])
+        G = calc_G()
+      
+        # CONTROLADOR CINEMATICO
+        he[:, k] = xref[0:4, k] - x[0:4, k]
         he[3, k] =  limitar_angulo(he[3, k])
-        uc[:, k] = np.linalg.pinv(J) @ (hdp[:, k] + K1 @ np.tanh(K2 @ he[:, k]))
-        #vc[:, k] = np.linalg.pinv(J) @ (K1 @ np.tanh(K2 @ he[:, k]))
-
+        #uc[:, k] = np.linalg.pinv(J) @ (xref[4:8, k] + K1 @ np.tanh(K2 @ he[:, k]))
+        uc[:, k] = np.linalg.pinv(J) @ (K1 @ np.tanh(K2 @ he[:, k]))
+  
         if k > 0:
             vcp = (uc[:, k] - uc[:, k - 1]) / ts
         else:
             vcp = uc[:, k] / ts
-
-        chi = [0.6756,    1.0000,    0.6344,    1.0000,    0.4080,    1.0000,    1.0000,    1.0000,    0.2953,    0.5941,   -0.8109,    1.0000,    0.3984,    0.7040,    1.0000,    0.9365,    1.0000, 1.0000,    0.9752]# Position
-        w = u[3, k]
-
-        # INERTIAL MATRIchi
-        M11 = chi[0]
-        M12 = 0
-        M13 = 0
-        M14 = b * chi[1]
-        M21 = 0
-        M22 = chi[2]
-        M23 = 0
-        M24 = a* chi[3]
-        M31 = 0
-        M32 = 0
-        M33 = chi[4]
-        M34 = 0
-        M41 = b*chi[5]
-        M42 = a* chi[6]
-        M43 = 0
-        M44 = chi[7]*(a**2+b**2) + chi[8]
-
-        M = np.array([[M11, M12, M13, M14],
-                    [M21, M22, M23, M24],
-                    [M31, M32, M33, M34],
-                    [M41, M42, M43, M44]])
-
-        # CENTRIOLIS MATRIchi
-        C11 = chi[9]
-        C12 = w*chi[10]
-        C13 = 0
-        C14 = a * w * chi[11]
-        C21 = w*chi[12]
-        C22 = chi[13]
-        C23 = 0
-        C24 = b * w * chi[14]
-        C31 = 0
-        C32 = 0
-        C33 = chi[15]
-        C34 = 0
-        C41 = a *w* chi[16]
-        C42 = b * w * chi[17]
-        C43 = 0
-        C44 = chi[18]
-
-        C = np.array([[C11, C12, C13, C14],
-                    [C21, C22, C23, C24],
-                    [C31, C32, C33, C34],
-                    [C41, C42, C43, C44]])
-
-        # GRAVITATIONAL MATRIchi
-        G11 = 0
-        G21 = 0
-        G31 = 0
-        G41 = 0
-
-        G = np.array([[G11],
-                    [G21],
-                    [G31],
-                    [G41]])
-
-    
-        ue[:, k] = uc[:, k] - u[:, k]
+     
+        #COMPENSADOR DINAMICO
+        ue[:, k] = uc[:, k] - x[4:8, k]
         control = 0*vcp + K3 @ np.tanh(np.linalg.inv(K3) @ K4 @ ue[:, k])
-        #control = control.reshape(4, 1)
-        uref[:, k] = np.squeeze(M @ control + C @ uc[:, k] + np.ravel(G))
+        uref[:, k] = M @ control + C @ uc[:, k]
 
-        
-        sendvalues(pub_control, uref[:, k] )
-        while (time.time() - tic <= ts):
-                None
+        #ENVIO DE VELOCIDADES AL DRON
+        sendvalues(pub_control, uc[:, k] )
+
+        #LECTURA DE ODOMETRIA MODELO SIMPLIFICADO
+        x[:, k+1] = get_odometry_simple()
+
+        rate.sleep() 
         toc = time.time() - tic 
                 
         print("Error:", " ".join("{:.2f}".format(value) for value in np.round(he[:, k], decimals=2)), end='\r')
@@ -371,14 +400,16 @@ if __name__ == '__main__':
         # Node Initialization
         rospy.init_node("Acados_controller",disable_signals=True, anonymous=True)
 
-        pub = rospy.Publisher("/m100/velocityControl", TwistStamped, queue_size=10)
+        velocity_publisher = rospy.Publisher("/m100/velocityControl", TwistStamped, queue_size=10)
         pub_config = rospy.Publisher("/UAV/Config", Int32MultiArray, queue_size=10)
     
         sub = rospy.Subscriber("/dji_sdk/odometry", Odometry, odometry_call_back, queue_size=10)
 
-        main(pub,pub_config)
+        main(velocity_publisher,pub_config)
     except(rospy.ROSInterruptException, KeyboardInterrupt):
         print("Error System")
+        
+        sendvalues(velocity_publisher, [0, 0, 0, 0], )
         pass
     else:
         print("Complete Execution")

@@ -397,7 +397,6 @@ def FLUtoENU(ul, um, un, quaternion):
     return v
 
 
-
 def send_state_to_topic(state_vector):
     publisher = rospy.Publisher('/dji_sdk/odometry', Odometry, queue_size=10)
     
@@ -467,9 +466,9 @@ def limitar_angulo(ErrAng):
 def main(vel_pub, vel_msg):
     # Initial Values System
     # Simulation Time
-    t_final = 60
+    t_final = 60*5
     # Sample time
-    frec= 30
+    frec= 15
     t_s = 1/frec
     # Prediction Time
     N_horizont = 10
@@ -504,7 +503,7 @@ def main(vel_pub, vel_msg):
     f = f_system_model()
 
     # Simulation System
-    ros_rate = 15  # Tasa de ROS en Hz
+    ros_rate = 30  # Tasa de ROS en Hz
     rate = rospy.Rate(ros_rate)  # Crear un objeto de la clase rospy.Rate
 
     
@@ -519,7 +518,7 @@ def main(vel_pub, vel_msg):
        
         x_sim[:, k+1] = f_d(x_sim[:, k], u_ref[:, k], t_s, f)
         
-        x_sim[3, k+1] = limitar_angulo(x_sim[3, k+1])
+        #x_sim[3, k+1] = limitar_angulo(x_sim[3, k+1])
 
         send_state_to_topic(x_sim[:, k])
 
