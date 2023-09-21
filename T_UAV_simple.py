@@ -264,7 +264,7 @@ def main(pub_control,pub_config):
 
     print("OK, controller is running!!!")
     
-    timerun = 60*5  # Segundos
+    timerun = 60  # Segundos
     hz = 30  # Frecuencia de actualización
     ts = 1 / hz
     samples = timerun * hz  # datos de muestreo totales
@@ -286,12 +286,12 @@ def main(pub_control,pub_config):
     
     #TAREA DESEADA
     num = 4
-    xd = lambda t: 5 * np.sin(num *0.04 * t) + 0.1
-    yd = lambda t: 2 * np.sin(num *0.08 * t) + 0.1
-    zd = lambda t: 1 * np.sin(0.08 * t) + 5
-    xdp = lambda t: 5 *num * 0.04 * np.cos(num *0.04 * t)
-    ydp = lambda t: 2 *num * 0.08 * np.cos(num *0.08 * t)
-    zdp = lambda t: 0.08 * np.cos(0.08 * t)
+    xd = lambda t: 4 * np.sin(5*0.04*t) + 3
+    yd = lambda t: 4 * np.sin(5*0.08*t)
+    zd = lambda t: 2.5 * np.sin (0.2* t) + 5  
+    xdp = lambda t: 4 * 5 * 0.04 * np.cos(5*0.04*t)
+    ydp = lambda t: 4 * 5 * 0.08 * np.cos(5*0.08*t)
+    zdp = lambda t: 2.5 * 0.2 * np.cos(0.2 * t)
 
     hxd = xd(t)
     hyd = yd(t)
@@ -330,7 +330,7 @@ def main(pub_control,pub_config):
         rate.sleep() 
         print("Init System")
     
-    for k in range(samples):
+    for k in range(samples-1):
         #INICIO DEL TIEMPO DE BUCLE
         tic = time.time()
 
