@@ -9,258 +9,16 @@ import time
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import Joy
+from scipy.io import savemat
+import os
 
 
+from Functions_SimpleModel import odometry_call_back, get_odometry_simple, send_velocity_control
+from Functions_DinamicControl import calc_G, calc_C, calc_M, calc_J, limitar_angulo
+from fancy_plots import plot_pose, plot_error, plot_time
+import P_UAV_simple
 
-
-#pkg> status ## Es para check los paquetes instalados
-# No es necesario en Python, ya que los paquetes se importan directamente
-
-maxloops = 1000
-rosloops = 0
-
-# Global variables Odometry Drone
-x_real = 0.0
-y_real = 0.0
-z_real = 0.0
-vx_real = 0.0
-vy_real = 0.0
-vz_real = 0.0
-
-# Angular velocities
-qx_real = 0.0005
-qy_real = 0.0
-qz_real = 0.0
-qw_real = 1.0
-wx_real = 0.0
-wy_real = 0.0
-wz_real = 0.0
-
-def quaternion_to_euler(qw, qx, qy, qz):
-    # Calcula los ángulos de Euler en la convención ZYX
-    # yaw (Z), pitch (Y), roll (X)
-    
-    # Normaliza el cuaternio
-    norm = np.sqrt(qw**2 + qx**2 + qy**2 + qz**2)
-    qw /= norm
-    qx /= norm
-    qy /= norm
-    qz /= norm
-    
-    # Calcula los ángulos de Euler
-    yaw = np.arctan2(2*(qw*qz + qx*qy), 1 - 2*(qy**2 + qz**2))
-    pitch = np.arcsin(2*(qw*qy - qx*qz))
-    roll = np.arctan2(2*(qw*qx + qy*qz), 1 - 2*(qx**2 + qy**2))
-    
-    # Devuelve los ángulos de Euler en radianes
-    return [roll, pitch, yaw]
-
-def odometry_call_back(odom_msg):
-    global x_real, y_real, z_real, qx_real, qy_real, qz_real, qw_real, vx_real, vy_real, vz_real, wx_real, wy_real, wz_real
-    # Read desired linear velocities from node
-    x_real = odom_msg.pose.pose.position.x 
-    y_real = odom_msg.pose.pose.position.y
-    z_real = odom_msg.pose.pose.position.z
-    vx_real = odom_msg.twist.twist.linear.x
-    vy_real = odom_msg.twist.twist.linear.y
-    vz_real = odom_msg.twist.twist.linear.z
-
-
-    qx_real = odom_msg.pose.pose.orientation.x
-    qy_real = odom_msg.pose.pose.orientation.y
-    qz_real = odom_msg.pose.pose.orientation.z
-    qw_real = odom_msg.pose.pose.orientation.w
-
-    wx_real = odom_msg.twist.twist.angular.x
-    wy_real = odom_msg.twist.twist.angular.y
-    wz_real = odom_msg.twist.twist.angular.z
-    return None
-
-def get_body_vel():
-    quat = np.array([qx, qy, qz, qw], dtype=np.double)
-    rot = R.from_quat(quat)
-    rot = rot.as_matrix()
-    rot_inv = np.linalg.inv(rot)
-    vel_w = np.array([vxd, vyd, vzd], dtype=np.double)
-    #vel_w = vel_w.reshape(3,1)
-    vel = rot_inv@vel_w 
-
-    #u = np.array([vel[0,0], vel[1,0], vel[2,0]], dtype=np.double)
-    return vel
-
-def get_pos():
-    h = np.array([xd, yd, zd], dtype=np.double)
-    return h
-
-def get_euler():
-    quat = np.array([qx, qy, qz, qw], dtype=np.double)
-    rot = R.from_quat(quat)
-    eul = rot.as_euler('xyz', degrees=False)
-
-    euler = np.array([eul[0], eul[1], eul[2]], dtype=np.double)
-    return euler
-
-def get_omega():
-    omega = np.array([wxd, wyd, wzd], dtype=np.double)
-    return omega
-
-def get_euler_p(omega, euler):
-    W = np.array([[1, np.sin(euler[0])*np.tan(euler[1]), np.cos(euler[0])*np.tan(euler[1])],
-                  [0, np.cos(euler[0]), np.sin(euler[0])],
-                  [0, np.sin(euler[0])/np.cos(euler[1]), np.cos(euler[0])/np.cos(euler[1])]])
-
-    euler_p = np.dot(W, omega)
-    return euler_p
-
-def sensor1_callback(msg):
-    sensor1 = [msg.x, msg.y, msg.z]
-
-def sendvalues(pub_obj, vc):
-    msg = TwistStamped()
-    #vc = [float(valor) for valor in vc_no[:, 0]]
-    msg.twist.linear.x = vc[0]
-    msg.twist.linear.y = vc[1]
-    msg.twist.linear.z = vc[2]
-    msg.twist.angular.z = vc[3]
-    pub_obj.publish(msg)
-
-def limitar_angulo(ErrAng):
-
-    if ErrAng >= 1 * np.pi:
-        while ErrAng >= 1 * np.pi:
-            ErrAng -= 2 * np.pi
-        return ErrAng
-
-    if ErrAng <= -1 * np.pi:
-        while ErrAng <= -1 * np.pi:
-            ErrAng += 2 * np.pi
-        return ErrAng
-    
-    return ErrAng
-
-def set_config(run, pub_config):
-    msg = Int32MultiArray()
-    msg.data = [run, run-run]
-    pub_config.publish(msg)
-    
-
-def get_odometry_simple():
-
-    global x_real, y_real, z_real, qx_real, qy_real, qz_real, qw_real, vx_real, vy_real, vz_real, wx_real, wy_real, wz_real
-
-    quaternion = [qx_real, qy_real, qz_real, qw_real ]
-    r_quat = R.from_quat(quaternion)
-    euler =  r_quat.as_euler('zyx', degrees = False)
-    psi = euler[0]
-
-    J = np.zeros((3, 3))
-    J[0, 0] = np.cos(psi)
-    J[0, 1] = -np.sin(psi)
-    J[0, 2] = 0
-    J[1, 0] = np.sin(psi)
-    J[1, 1] = np.cos(psi)
-    J[1, 2] = 0
-    J[2, 0] = 0
-    J[2, 1] = 0
-    J[2, 2] = 1
-
-    J_inv = np.linalg.inv(J)
-    v = np.dot(J_inv, [vx_real, vy_real, vz_real])
- 
-    ul_real = v[0]
-    um_real = v[1]
-    un_real = v[2]
-
-
-    x_state = [x_real,y_real,z_real,psi,ul_real,um_real,un_real, wz_real]
-
-    return x_state
-
-def calc_M(chi, a, b):
-    
-
-    # INERTIAL MATRIchi
-    M11 = chi[0]
-    M12 = 0
-    M13 = 0
-    M14 = b * chi[1]
-    M21 = 0
-    M22 = chi[2]
-    M23 = 0
-    M24 = a* chi[3]
-    M31 = 0
-    M32 = 0
-    M33 = chi[4]
-    M34 = 0
-    M41 = b*chi[5]
-    M42 = a* chi[6]
-    M43 = 0
-    M44 = chi[7]*(a**2+b**2) + chi[8]
-
-    M = np.array([[M11, M12, M13, M14],
-                [M21, M22, M23, M24],
-                [M31, M32, M33, M34],
-                [M41, M42, M43, M44]])
-    
-    return M
-
-def calc_C(chi, a, b, x):
-    w = x[7]
-
-    # CENTRIOLIS MATRIchi
-    C11 = chi[9]
-    C12 = w*chi[10]
-    C13 = 0
-    C14 = a * w * chi[11]
-    C21 = w*chi[12]
-    C22 = chi[13]
-    C23 = 0
-    C24 = b * w * chi[14]
-    C31 = 0
-    C32 = 0
-    C33 = chi[15]
-    C34 = 0
-    C41 = a *w* chi[16]
-    C42 = b * w * chi[17]
-    C43 = 0
-    C44 = chi[18]
-
-    C = np.array([[C11, C12, C13, C14],
-                [C21, C22, C23, C24],
-                [C31, C32, C33, C34],
-                [C41, C42, C43, C44]])
-
-    return C
-
-def calc_G():
-    # GRAVITATIONAL MATRIchi
-    G11 = 0
-    G21 = 0
-    G31 = 0
-    G41 = 0
-
-    G = np.array([[G11],
-                [G21],
-                [G31],
-                [G41]])
-
-
-def calc_J(x):
-    
-    psi = x[3]
-
-    J = np.zeros((4, 4))
-
-    J[0, 0] = np.cos(psi)
-    J[0, 1] = -np.sin(psi)
-    J[1, 0] = np.sin(psi)
-    J[1, 1] = np.cos(psi)
-    J[2, 2] = 1
-    J[3, 3] = 1
-
-    return J
-
-def main(pub_control,pub_config):
+def main(vel_pub, vel_msg ):
 
     print("OK, controller is running!!!")
     
@@ -279,19 +37,24 @@ def main(pub_control,pub_config):
     psidp = np.zeros(samples)
 
     #GANANCIAS DEL CONTROLADOR
-    K1 = np.diag([1,1,1,1])  
-    K2 = np.diag([1,1,1,1])  
-    K3 = np.diag([1,1,1,1])  
-    K4 = np.diag([1,1,1,1])  
+    K1 = np.diag([1.9925, 2.0686, 1.7324, 1.5144])
+    K2 = np.diag([1.1157, 1.1583, 1.0436, 1.0407])
+    K3 = np.diag([1.1646, 1.1748, 1.1676, 1.1667])
+    K4 = np.diag([1.7175, 1.6544, 1.7160, 0.8236])
+
+    
+    #K2 = np.diag([1,1,1,1])
+    #K3 = np.diag([1,1,1,1])
+   
     
     #TAREA DESEADA
     num = 4
     xd = lambda t: 4 * np.sin(5*0.04*t) + 3
     yd = lambda t: 4 * np.sin(5*0.08*t)
-    zd = lambda t: 2.5 * np.sin (0.2* t) + 5  
+    zd = lambda t: 2 * np.sin(5*0.08*t) + 5  
     xdp = lambda t: 4 * 5 * 0.04 * np.cos(5*0.04*t)
     ydp = lambda t: 4 * 5 * 0.08 * np.cos(5*0.08*t)
-    zdp = lambda t: 2.5 * 0.2 * np.cos(0.2 * t)
+    zdp = lambda t: 2 * 5 * 0.08 * np.cos(5*0.08*t)
 
     hxd = xd(t)
     hyd = yd(t)
@@ -312,23 +75,26 @@ def main(pub_control,pub_config):
     xref[0,:] = hxd
     xref[1,:] = hyd
     xref[2,:] = hzd
-    xref[3,:] = psid
+    xref[3,:] = 0*psid
     xref[4,:] = hxdp
     xref[5,:] = hydp
     xref[6,:] = hzdp
-    xref[7,:] = psidp
+    xref[7,:] = 0*psidp
 
     # Simulation System
     ros_rate = 30  # Tasa de ROS en Hz
     rate = rospy.Rate(ros_rate)  # Crear un objeto de la clase rospy.Rate
 
+
+    P_UAV_simple.main(vel_pub, vel_msg )
+
     #INICIALIZA LECTURA DE ODOMETRIA
-    for k in range(0, 100):
+    for k in range(0, 10):
         # Read Real data
         x[:, 0] = get_odometry_simple()
         # Loop_rate.sleep()
         rate.sleep() 
-        print("Init System")
+        print("Init System Tratyectory")
     
     for k in range(samples-1):
         #INICIO DEL TIEMPO DE BUCLE
@@ -359,7 +125,7 @@ def main(pub_control,pub_config):
         uref[:, k] = M @ control + C @ uc[:, k]
 
         #ENVIO DE VELOCIDADES AL DRON
-        sendvalues(pub_control, uc[:, k] )
+        send_velocity_control(uref[:, k], vel_pub, vel_msg )
 
         #LECTURA DE ODOMETRIA MODELO SIMPLIFICADO
         x[:, k+1] = get_odometry_simple()
@@ -369,30 +135,41 @@ def main(pub_control,pub_config):
                 
         print("Error:", " ".join("{:.2f}".format(value) for value in np.round(he[:, k], decimals=2)), end='\r')
 
+    send_velocity_control([0, 0, 0, 0], velocity_publisher, velocity_message)
+ 
+    fig1 = plot_pose(x, xref, t)
+    fig1.savefig("1_pose.png")
+    fig2 = plot_error(he, t)
+    fig2.savefig("2_error_pose.png")
 
-    v_end = [0, 0.0, 0.0, 0]
-    sendvalues(pub_control, v_end)
-    set_config(0, pub_config)
+    x_data = {"states": x, "label": "x"}
+    xref_data = {"ref": xref, "label": "xref"}
+    t_data = {"t": t, "label": "time"}
 
-    x = np.arange(1, samples + 1)
-    hxe = he[0, :samples]
-    hye = he[1, :samples]
-    hze = he[2, :samples]
-    hpsie = he[3, :samples]
+    #For MODEL TESTS
+    # Ruta que deseas verificar
+    pwd = "/home/bryansgue/Doctoral_Research/Matlab/Graficas_Metologia"
 
-    plt.plot(x, hxe, label="hxe", lw=1)
-    plt.plot(x, hye, label="hye", lw=1)
-    plt.plot(x, hze, label="hze", lw=1)
-    plt.plot(x, hpsie, label="hpsie", lw=1)
+    # Verificar si la ruta no existe
+    if not os.path.exists(pwd) or not os.path.isdir(pwd):
+        print(f"La ruta {pwd} no existe. Estableciendo la ruta local como pwd.")
+        pwd = os.getcwd()  # Establece la ruta local como pwd
+    
+    #SELECCION DEL EXPERIMENTO
+    Test = "Real"
 
-    plt.title("Error de control")
-    plt.xlabel("Eje x")
-    plt.ylabel("Error")
-    plt.legend()
-    plt.savefig("error_trayectoria.pdf")
-    #plt.show()
-
-
+    if Test == "MiL":
+        savemat(os.path.join(pwd, "x_MiL.mat"), x_data)
+        savemat(os.path.join(pwd, "xref_MiL.mat"), xref_data)
+        savemat(os.path.join(pwd, "t_MiL.mat"), t_data)
+    elif Test == "HiL":
+        savemat(os.path.join(pwd, "x_HiL.mat"), x_data)
+        savemat(os.path.join(pwd, "xref_HiL.mat"), xref_data)
+        savemat(os.path.join(pwd, "t_HiL.mat"), t_data)
+    elif Test == "Real":
+        savemat(os.path.join(pwd, "x_Real.mat"), x_data)
+        savemat(os.path.join(pwd, "xref_Real.mat"), xref_data)
+        savemat(os.path.join(pwd, "t_Real.mat"), t_data)
 
 
 if __name__ == '__main__':
@@ -400,16 +177,18 @@ if __name__ == '__main__':
         # Node Initialization
         rospy.init_node("Acados_controller",disable_signals=True, anonymous=True)
 
+        # SUCRIBER
+        velocity_subscriber = rospy.Subscriber("/dji_sdk/odometry", Odometry, odometry_call_back)
+        
+        # PUBLISHER
+        velocity_message = TwistStamped()
         velocity_publisher = rospy.Publisher("/m100/velocityControl", TwistStamped, queue_size=10)
-        pub_config = rospy.Publisher("/UAV/Config", Int32MultiArray, queue_size=10)
-    
-        sub = rospy.Subscriber("/dji_sdk/odometry", Odometry, odometry_call_back, queue_size=10)
 
-        main(velocity_publisher,pub_config)
+        main(velocity_publisher, velocity_message)
     except(rospy.ROSInterruptException, KeyboardInterrupt):
         print("Error System")
         
-        sendvalues(velocity_publisher, [0, 0, 0, 0], )
+        send_velocity_control([0, 0, 0, 0], velocity_publisher, velocity_message)
         pass
     else:
         print("Complete Execution")
