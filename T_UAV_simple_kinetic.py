@@ -50,7 +50,7 @@ def main(vel_pub, vel_msg ):
    
     
     #TAREA DESEADA
-    value = 8
+    value = 9
     xd = lambda t: 4 * np.sin(value*0.04*t) + 3
     yd = lambda t: 4 * np.sin(value*0.08*t)
     zd = lambda t: 2 * np.sin(value*0.08*t) + 6
