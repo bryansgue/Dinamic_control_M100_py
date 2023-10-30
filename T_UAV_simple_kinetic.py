@@ -22,7 +22,7 @@ def main(vel_pub, vel_msg ):
 
     print("OK, controller is running!!!")
     
-    timerun = 60  # Segundos
+    timerun = 60 # Segundos
     hz = 30  # Frecuencia de actualización
     ts = 1 / hz
     samples = timerun * hz  # datos de muestreo totales
@@ -37,21 +37,12 @@ def main(vel_pub, vel_msg ):
     psidp = np.zeros(samples)
 
     #GANANCIAS DEL CONTROLADOR
-    # GANANCIAS DEL CONTROLADOR
     K1 = np.diag([1.0167, 1.4292, 2.0432, 2.4993])
     K2 = np.diag([2.7479, 3.1665, 3.7262, 2.6893])
-    K3 = np.diag([2.4438, 2.2930, 0.7112, 1.2569])
-    K4 = np.diag([2.8308, 3.0125, 1.1317, 0.5383])
-    
-    #K3 = np.diag([0.6249 ,   3.1950  ,  0.5134 ,   1.1815])
-    #K4 = np.diag([1.9827,   1.8119   , 0.9784 ,   0.3459])
-    
+
 
     # GANANCIAS DEL CONTROLADOR
-   # K1 = np.diag([1.9830, 1.9884, 0.9111, 2.5268])
-   # K2 = np.diag([1.6783, 1.1509, 0.9200, 1.6709])
-   # K3 = np.diag([0.9718, 1.9620, 0.0001, 0.9760])
-   # K4 = np.diag([0.9694, 0.4066, 1.5302, 0.4516])
+
 
     
     #K2 = np.diag([1,1,1,1])
@@ -59,7 +50,7 @@ def main(vel_pub, vel_msg ):
    
     
     #TAREA DESEADA
-    value = 9
+    value = 8
     xd = lambda t: 4 * np.sin(value*0.04*t) + 3
     yd = lambda t: 4 * np.sin(value*0.08*t)
     zd = lambda t: 2 * np.sin(value*0.08*t) + 6
@@ -124,19 +115,10 @@ def main(vel_pub, vel_msg ):
         he[3, k] =  limitar_angulo(he[3, k])
         uc[:, k] = np.linalg.pinv(J) @ (ref[4:8, k] + K2 @ np.tanh(np.linalg.inv(K2) @ K1 @ he[:, k]))
         #uc[:, k] = np.linalg.pinv(J) @ (K1 @ np.tanh(K2 @ he[:, k]))
-  
-        if k > 0:
-            vcp = (uc[:, k] - uc[:, k - 1]) / ts
-        else:
-            vcp = uc[:, k] / ts
-     
-        #COMPENSADOR DINAMICO
-        ue[:, k] = uc[:, k] - x[4:8, k]
-        control = 0.0*vcp + K4 @ np.tanh(np.linalg.inv(K4) @ K3 @ ue[:, k])
-        u[:, k] = M @ control + C @ uc[:, k]
+          
 
         #ENVIO DE VELOCIDADES AL DRON
-        send_velocity_control(u[:, k], vel_pub, vel_msg )
+        send_velocity_control(uc[:, k], vel_pub, vel_msg )
 
         #LECTURA DE ODOMETRIA MODELO SIMPLIFICADO
         x[:, k+1] = get_odometry_simple()
@@ -166,11 +148,11 @@ def main(vel_pub, vel_msg ):
     Test = "Real"
 
     if Test == "MiL":
-        name_file = "Com_din_MiL.mat"
+        name_file = "Kinetic_MiL.mat"
     elif Test == "HiL":
-        name_file = "Com_din_HiL.mat"
+        name_file = "Kinetic_HiL.mat"
     elif Test == "Real":
-        name_file = "Com_din_Real.mat"
+        name_file = "Kinetic_Real.mat"
     
     save = True
     if save==True:
@@ -178,7 +160,6 @@ def main(vel_pub, vel_msg ):
             'x_states': x,
             'ref': ref,
             'uc_input': uc,
-            'u_input': u,
             't_time': t })
 
 

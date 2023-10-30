@@ -18,6 +18,34 @@ from Functions_DinamicControl import calc_G, calc_C, calc_M, calc_J, limitar_ang
 from fancy_plots import plot_pose, plot_error, plot_time
 import P_UAV_simple
 
+
+def adaptive_OPTI(vcp, vc, v, x, k3, k4, L, ts):
+    mu_l = v[0]
+    mu_m = v[1]
+    mu_n = v[2]
+    w = v[3]
+    a = L[0]
+    b = L[1]
+
+    K3 = k3 * np.eye(len(v))
+    K4 = k4 * np.eye(len(v))
+
+    ve = vc - v
+    control = vcp + np.dot(K3, np.tanh(np.dot(np.linalg.inv(K3), np.dot(K4, ve))))
+    s1, s2, s3, s4 = control[0], control[1], control[2], control[3]
+
+    Y = np.array([[s1, b * s4, 0, 0, 0, 0, 0, 0, 0, mu_l, mu_m * w, a * w ** 2, 0, 0, 0, 0, 0, 0, 0],
+                  [0, 0, s2, a * s4, 0, 0, 0, 0, 0, 0, 0, 0, mu_l * w, mu_m, b * w ** 2, 0, 0, 0, 0],
+                  [0, 0, 0, 0, s3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, mu_n, 0, 0, 0],
+                  [0, 0, 0, 0, 0, b * s1, a * s2, s4 * (a ** 2 + b ** 2), s4, 0, 0, 0, 0, 0, 0, 0, a * mu_l * w, b * mu_m * w, w]])
+
+    K = 0.5 * np.eye(19)
+    xp = np.dot(np.linalg.inv(K), np.dot(Y.T, ve))
+    x = x + xp * ts
+    vref = np.dot(Y, x)
+
+    return vref, x
+
 def main(vel_pub, vel_msg ):
 
     print("OK, controller is running!!!")
@@ -37,21 +65,10 @@ def main(vel_pub, vel_msg ):
     psidp = np.zeros(samples)
 
     #GANANCIAS DEL CONTROLADOR
-    # GANANCIAS DEL CONTROLADOR
-    K1 = np.diag([1.0167, 1.4292, 2.0432, 2.4993])
-    K2 = np.diag([2.7479, 3.1665, 3.7262, 2.6893])
-    K3 = np.diag([2.4438, 2.2930, 0.7112, 1.2569])
-    K4 = np.diag([2.8308, 3.0125, 1.1317, 0.5383])
-    
-    #K3 = np.diag([0.6249 ,   3.1950  ,  0.5134 ,   1.1815])
-    #K4 = np.diag([1.9827,   1.8119   , 0.9784 ,   0.3459])
-    
-
-    # GANANCIAS DEL CONTROLADOR
-   # K1 = np.diag([1.9830, 1.9884, 0.9111, 2.5268])
-   # K2 = np.diag([1.6783, 1.1509, 0.9200, 1.6709])
-   # K3 = np.diag([0.9718, 1.9620, 0.0001, 0.9760])
-   # K4 = np.diag([0.9694, 0.4066, 1.5302, 0.4516])
+    K1 = np.diag([1.9925, 2.0686, 1.7324, 1.5144])
+    K2 = np.diag([1.1157, 1.1583, 1.0436, 1.0407])
+    K3 = np.diag([1.1646, 1.1748, 1.1676, 1.1667])
+    K4 = np.diag([1.7175, 1.6544, 1.7160, 0.8236])
 
     
     #K2 = np.diag([1,1,1,1])
@@ -59,7 +76,7 @@ def main(vel_pub, vel_msg ):
    
     
     #TAREA DESEADA
-    value = 9
+    value = 8
     xd = lambda t: 4 * np.sin(value*0.04*t) + 3
     yd = lambda t: 4 * np.sin(value*0.08*t)
     zd = lambda t: 2 * np.sin(value*0.08*t) + 6
@@ -96,6 +113,19 @@ def main(vel_pub, vel_msg ):
     ros_rate = 30  # Tasa de ROS en Hz
     rate = rospy.Rate(ros_rate)  # Crear un objeto de la clase rospy.Rate
 
+    #CHI
+    chi_est = np.zeros((19, t.shape[0]), dtype = np.double)
+    K3 = 1 # Define tus valores de K1
+    K4 = 1  # Define tus valores de K2
+    a = 1
+    b = 2
+    c = 3
+    L = [a, b, c]
+    
+
+     # MODELO CINEMATICO Y DINAMICO
+    chi = [0.6756,    1.0000,    0.6344,    1.0000,    0.4080,    1.0000,    1.0000,    1.0000,    0.2953,    0.5941,   -0.8109,    1.0000,    0.3984,    0.7040,    1.0000,    0.9365,    1.0000, 1.0000,    0.9752]# Position
+    chi_est[:, 1] = chi
 
     P_UAV_simple.main(vel_pub, vel_msg )
 
@@ -111,9 +141,9 @@ def main(vel_pub, vel_msg ):
         #INICIO DEL TIEMPO DE BUCLE
         tic = time.time()
 
-        # MODELO CINEMATICO Y DINAMICO
-        chi = [0.6756,    1.0000,    0.6344,    1.0000,    0.4080,    1.0000,    1.0000,    1.0000,    0.2953,    0.5941,   -0.8109,    1.0000,    0.3984,    0.7040,    1.0000,    0.9365,    1.0000, 1.0000,    0.9752]# Position
-        
+       
+
+
         J = calc_J(x[:, k])
         M = calc_M(chi, a, b)
         C = calc_C(chi, a, b, x[:,k])
@@ -122,8 +152,8 @@ def main(vel_pub, vel_msg ):
         # CONTROLADOR CINEMATICO
         he[:, k] = ref[0:4, k] - x[0:4, k]
         he[3, k] =  limitar_angulo(he[3, k])
-        uc[:, k] = np.linalg.pinv(J) @ (ref[4:8, k] + K2 @ np.tanh(np.linalg.inv(K2) @ K1 @ he[:, k]))
-        #uc[:, k] = np.linalg.pinv(J) @ (K1 @ np.tanh(K2 @ he[:, k]))
+        #uc[:, k] = np.linalg.pinv(J) @ (ref[4:8, k] + K1 @ np.tanh(K2 @ he[:, k]))
+        uc[:, k] = np.linalg.pinv(J) @ (K1 @ np.tanh(K2 @ he[:, k]))
   
         if k > 0:
             vcp = (uc[:, k] - uc[:, k - 1]) / ts
@@ -131,9 +161,12 @@ def main(vel_pub, vel_msg ):
             vcp = uc[:, k] / ts
      
         #COMPENSADOR DINAMICO
-        ue[:, k] = uc[:, k] - x[4:8, k]
-        control = 0.0*vcp + K4 @ np.tanh(np.linalg.inv(K4) @ K3 @ ue[:, k])
-        u[:, k] = M @ control + C @ uc[:, k]
+        #ue[:, k] = uc[:, k] - x[4:8, k]
+        #control = 0*vcp + K3 @ np.tanh(np.linalg.inv(K3) @ K4 @ ue[:, k])
+        #u[:, k] = M @ control + C @ uc[:, k]
+
+        u[:, k], chi_est[:, k + 1] = adaptive_OPTI(0*vcp, uc[:, k], x[4:8, k], chi_est[:, k], K3, K4, L, ts)
+
 
         #ENVIO DE VELOCIDADES AL DRON
         send_velocity_control(u[:, k], vel_pub, vel_msg )
@@ -163,14 +196,14 @@ def main(vel_pub, vel_msg ):
         pwd = os.getcwd()  # Establece la ruta local como pwd
     
     #SELECCION DEL EXPERIMENTO
-    Test = "Real"
+    Test = "HiL"
 
     if Test == "MiL":
-        name_file = "Com_din_MiL.mat"
+        name_file = "Adaptive_MiL.mat"
     elif Test == "HiL":
-        name_file = "Com_din_HiL.mat"
+        name_file = "Adaptive_HiL.mat"
     elif Test == "Real":
-        name_file = "Com_din_Real.mat"
+        name_file = "Adaptive_Real.mat"
     
     save = True
     if save==True:
@@ -179,7 +212,8 @@ def main(vel_pub, vel_msg ):
             'ref': ref,
             'uc_input': uc,
             'u_input': u,
-            't_time': t })
+            't_time': t,
+            'chi_adaptive': chi_est})
 
 
 if __name__ == '__main__':
